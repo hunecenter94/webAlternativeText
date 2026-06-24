@@ -62,7 +62,7 @@ st.markdown(
             <meta property="og:type" content="website" />
             <meta property="og:url" content="https://k2webtech.streamlit.app/" />
             <meta property="og:title" content="웹접근성 alt 대체 텍스트 관리" />
-            <meta property="og:description" content="웹접근성 alt 대체 텍스트 관리" />
+            <meta property="og:description" 웹접근성 alt 대체 텍스트 관리" />
             <meta property="og:image" content="{OG_IMAGE_URL}" />
             <meta property="og:image:width" content="1200" />
             <meta property="og:image:height" content="630" />
@@ -90,6 +90,14 @@ if "log_messages" not in st.session_state:
 if "article_images" not in st.session_state:
     st.session_state.article_images = {}
 
+# 📊 [추가] GPT API 토큰 사용량 정보 세션 초기화
+if "prompt_tokens" not in st.session_state:
+    st.session_state.prompt_tokens = 0
+if "completion_tokens" not in st.session_state:
+    st.session_state.completion_tokens = 0
+if "api_calls" not in st.session_state:
+    st.session_state.api_calls = 0
+
 def add_log(msg: str):
     print(msg)
     st.session_state.log_messages.append(msg)
@@ -101,6 +109,32 @@ LOGIN_URL = st.sidebar.text_input("로그인 URL", value="https://")
 LIST_URL = st.sidebar.text_input("게시글 목록 URL", value="https://")
 LOGIN_ID = st.sidebar.text_input("로그인 ID")
 LOGIN_PASSWORD = st.sidebar.text_input("로그인 패스워드", type="password")
+
+# ============================================================
+# 📊 [추가] GPT API 사용량 모니터링 사이드바 UI 랜더링
+# ============================================================
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 GPT API 사용량 모니터링")
+
+# gpt-4o-mini 단가 기준 (입력: $0.15/1M tokens, 출력: $0.60/1M tokens)
+cost_input = (st.session_state.prompt_tokens / 1,000,000) * 0.15 if st.session_state.prompt_tokens > 0 else 0.0
+cost_output = (st.session_state.completion_tokens / 1,000,000) * 0.60 if st.session_state.completion_tokens > 0 else 0.0
+total_cost_usd = cost_input + cost_output
+
+col_u1, col_u2 = st.sidebar.columns(2)
+col_u1.metric("총 호출 횟수", f"{st.session_state.api_calls} 회")
+col_u2.metric("누적 예상 비용", f"${total_cost_usd:.5f}")
+
+with st.sidebar.expander("🔍 상세 토큰 사용량"):
+    st.write(f"- **입력 토큰 (Input):** {st.session_state.prompt_tokens:,} tokens")
+    st.write(f"- **출력 토큰 (Output):** {st.session_state.completion_tokens:,} tokens")
+    st.write(f"- **총합 토큰:** {st.session_state.prompt_tokens + st.session_state.completion_tokens:,} tokens")
+    st.caption("※ 비용 계산 모델: `gpt-4o-mini` (2026 단가 반영)")
+    if st.button("🔄 사용량 기록 리셋", use_container_width=True):
+        st.session_state.prompt_tokens = 0
+        st.session_state.completion_tokens = 0
+        st.session_state.api_calls = 0
+        st.rerun()
 
 # ============================================================
 # [핵심 로직 영역] GPT & 플레이라이트
@@ -132,6 +166,13 @@ def generate_alt_text(client, image_url: str) -> str | None:
             ],
             max_tokens=500,
         )
+        
+        # 📊 [추가] 성공적인 API 응답 수집 시 토큰 수 추적 저장
+        if response.usage:
+            st.session_state.prompt_tokens += response.usage.prompt_tokens
+            st.session_state.completion_tokens += response.usage.completion_tokens
+            st.session_state.api_calls += 1
+
         alt = response.choices[0].message.content.strip()
         alt = re.sub(r'^["\'\u201c\u201d]|["\'\u201c\u201d]$', "", alt)
         return alt
@@ -170,7 +211,7 @@ def fetch_links_and_images():
         with sync_playwright() as p:
             system_chromium = get_chromium_executable()
             
-            # 🌟 [해결 1] 컨테이너 가상 환경 크래시 방지용 필수 실행 인자 목록 정의
+            # 컨테이너 가상 환경 크래시 방지용 필수 실행 인자 목록 정의
             launch_args = {
                 "headless": True,
                 "args": [
@@ -251,7 +292,7 @@ def save_alt_to_web(url: str, img_data_list: list, article_idx: int):
         with sync_playwright() as p:
             system_chromium = get_chromium_executable()
             
-            # 🌟 [해결 2] 저장 시 브라우저 호출 구역에도 크래시 예방용 옵션을 완전히 동일하게 적용합니다.
+            # 저장 시 브라우저 호출 구역에도 크래시 예방용 옵션을 완전히 동일하게 적용합니다.
             launch_args = {
                 "headless": True,
                 "slow_mo": 300,
