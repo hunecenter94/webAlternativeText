@@ -1,13 +1,15 @@
 import os
 import re
 import time
+import subprocess
+import sys
 from urllib.parse import urljoin
 import streamlit as st
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from openai import OpenAI
 
 # ============================================================
-# [시스템 Chromium 브라우저 경로 탐색 기능] ★추가★
+# [시스템 Chromium 브라우저 경로 탐색 기능]
 # ============================================================
 # packages.txt를 통해 리눅스 서버에 기본 설치된 Chromium 브라우저의 실제 실행 경로를 탐색합니다.
 # 이 경로를 사용하면 무거운 런타임 다운로드 없이 서버의 브라우저를 즉시 구동할 수 있습니다.
@@ -43,12 +45,15 @@ ensure_playwright_browsers()
 # [OG 메타 태그 주입 및 페이지 헤더 설정]
 # ============================================================
 # GitHub 저장소에 올린 이미지를 사용하기 위한 Raw URL 주소입니다.
-OG_IMAGE_URL = "https://raw.githubusercontent.com/hunecenter94/webalternativetext/main/images/ogImage.png"
+OG_IMAGE_URL = "https://raw.githubusercontent.com/hunecenter94/webalternativetext/main/og-image.png"
 
-# 스트림릿 웹 페이지 설정
-st.set_page_config(page_title="웹접근성 alt 대체 텍스트 관리", page_icon="🛠️", layout="wide")
+st.set_page_config(
+    page_title="웹접근성 alt 대체 텍스트 관리", 
+    page_icon="🛠️", 
+    layout="wide"
+)
 
-# 사용자 정의 메타 태그 주입 (카카오톡, 슬랙, 페이스북 용)
+# 헤더에 메타 태그를 주입하되, 브라우저가 화면에 글자로 그리지 않도록 style="display:none;" 처리
 st.markdown(
     f"""
     <div style="display:none;">
@@ -72,27 +77,28 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 st.title("🛠️ 웹접근성 alt 대체 텍스트 관리")
 
-# 세션 상태(Session State) 초기화
+# ============================================================
+# [세션 상태(Session State) 초기화 및 앱 비즈니스 로직 시작]
+# ============================================================
 if "article_list" not in st.session_state:
     st.session_state.article_list = []
 if "log_messages" not in st.session_state:
     st.session_state.log_messages = []
 if "article_images" not in st.session_state:
-    st.session_state.article_images = {}  # { url: [ {idx, src, alt}, ... ] }
+    st.session_state.article_images = {}
 
 def add_log(msg: str):
     print(msg)
     st.session_state.log_messages.append(msg)
 
-# ============================================================
-# [웹 UI 영역] 사이드바 설정 정보 입력
-# ============================================================
+# [기본 설정 정보 입력 사이드바]
 st.sidebar.header("🔑 기본 설정 정보")
-OPENAI_API_KEY = st.sidebar.text_input("OpenAI API Key", type="password", help="sk-... 형태의 API 키를 입력하세요.")
-LOGIN_URL = st.sidebar.text_input("로그인 URL (LOGIN_URL)", value="https://")
-LIST_URL = st.sidebar.text_input("게시글 목록 URL (LIST_URL)", value="https://")
+OPENAI_API_KEY = st.sidebar.text_input("OpenAI API Key", type="password", help="sk-... 로 시작하는 API 키를 입력하세요.")
+LOGIN_URL = st.sidebar.text_input("로그인 URL", value="https://")
+LIST_URL = st.sidebar.text_input("게시글 목록 URL", value="https://")
 LOGIN_ID = st.sidebar.text_input("로그인 ID")
 LOGIN_PASSWORD = st.sidebar.text_input("로그인 패스워드", type="password")
 
@@ -133,7 +139,6 @@ def generate_alt_text(client, image_url: str) -> str | None:
         add_log(f"  ❌ [AI 생성 실패] 이미지 분석 오류 발생: {str(e)}")
         return None
 
-# 🌟 [오류 해결의 핵심] 버튼 클릭 시점에 세션 값을 안전하게 변경하는 콜백 함수 선언
 def run_ai_alt_callback(target_key: str, img_src: str):
     if not OPENAI_API_KEY:
         st.error("왼쪽 사이드바에 OpenAI API Key를 먼저 입력해주세요.")
@@ -142,7 +147,6 @@ def run_ai_alt_callback(target_key: str, img_src: str):
     client = OpenAI(api_key=OPENAI_API_KEY)
     generated = generate_alt_text(client, img_src)
     if generated:
-        # 렌더링 주기 밖인 on_click 시점에 변경하므로 StreamlitAPIException 에러가 절대 나지 않습니다.
         st.session_state[target_key] = generated
         add_log(f"  ✨ [AI 반영 성공] 키({target_key})의 텍스트 영역 데이터 갱신 완료")
 
@@ -164,7 +168,25 @@ def fetch_links_and_images():
 
     with st.spinner("🔄 게시판 목록 분석 및 각 글의 이미지 상태를 일괄 수집 중..."):
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            system_chromium = get_chromium_executable()
+            
+            # 🌟 [해결 1] 컨테이너 가상 환경 크래시 방지용 필수 실행 인자 목록 정의
+            launch_args = {
+                "headless": True,
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage"
+                ]
+            }
+            
+            if system_chromium:
+                launch_args["executable_path"] = system_chromium
+                add_log(f"🎯 시스템 Chromium 감지 및 연동 성공: {system_chromium}")
+            else:
+                add_log("⚠️ 시스템 Chromium을 찾지 못해 기본 실행을 시도합니다.")
+
+            browser = p.chromium.launch(**launch_args)
             page = browser.new_page()
             try:
                 login(page)
@@ -227,7 +249,24 @@ def fetch_links_and_images():
 def save_alt_to_web(url: str, img_data_list: list, article_idx: int):
     with st.spinner("🚀 실제 게시판에 저장 반영 중입니다..."):
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, slow_mo=300)
+            system_chromium = get_chromium_executable()
+            
+            # 🌟 [해결 2] 저장 시 브라우저 호출 구역에도 크래시 예방용 옵션을 완전히 동일하게 적용합니다.
+            launch_args = {
+                "headless": True,
+                "slow_mo": 300,
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage"
+                ]
+            }
+            
+            if system_chromium:
+                launch_args["executable_path"] = system_chromium
+                add_log(f"🎯 시스템 Chromium 감지 및 연동 성공: {system_chromium}")
+
+            browser = p.chromium.launch(**launch_args)
             page = browser.new_page()
             try:
                 add_log(f"\n[서버 반영 저장 시작] {url}")
@@ -249,7 +288,6 @@ def save_alt_to_web(url: str, img_data_list: list, article_idx: int):
                     for img in img_data_list:
                         widget_key = f"widget_{article_idx}_{img['idx']}"
                         user_edited_alt = st.session_state.get(widget_key, img["alt"])
-                        
                         final_alt = "" if user_edited_alt == "alt값 미존재" else user_edited_alt
                         
                         editor_frame.evaluate(
@@ -311,14 +349,12 @@ with col1:
                         if widget_key not in st.session_state:
                             st.session_state[widget_key] = img["alt"]
                         
-                        # 🌟 오직 'key' 매개변수만 사용하여 세션 데이터와 컴포넌트를 1:1 결합합니다.
                         text_col.text_area(
                             f"이미지 [{img['idx']}] 소스: ..{img['src'][-20:]}", 
                             key=widget_key,
                             height=150
                         )
                         
-                        # 🌟 [오류 해결의 핵심] AI 생성 버튼에 on_click 콜백을 연결하고 인자를 전달합니다.
                         ai_col.button(
                             "✨ AI alt 생성", 
                             key=f"ai_{idx}_{img_idx}",
