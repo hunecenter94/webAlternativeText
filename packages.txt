@@ -1,6 +1,5 @@
 chromium
 libgbm1
 libnss3
-libasound2
 libxss1
 libxtst6
