@@ -7,20 +7,36 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from openai import OpenAI
 
 # ============================================================
-# [Playwright 브라우저 자동 설치 셋업] ★최상단 위치★
+# [시스템 Chromium 브라우저 경로 탐색 기능] ★추가★
 # ============================================================
-# Streamlit Cloud 환경에서 Playwright 가상 브라우저 바이너리가 없을 경우를 대비하여
-# 앱 시작 시 최초 1회 자동으로 chromium 바이너리를 다운로드 및 세팅합니다.
+# packages.txt를 통해 리눅스 서버에 기본 설치된 Chromium 브라우저의 실제 실행 경로를 탐색합니다.
+# 이 경로를 사용하면 무거운 런타임 다운로드 없이 서버의 브라우저를 즉시 구동할 수 있습니다.
+def get_chromium_executable():
+    paths = [
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chrome"
+    ]
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    return None
+
+# ============================================================
+# [Playwright 브라우저 자동 설치 셋업 (백업용)]
+# ============================================================
 @st.cache_resource
 def ensure_playwright_browsers():
-    try:
-        print("Checking/Installing Playwright Chromium binaries...")
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-        print("Playwright Chromium binaries are ready!")
-    except Exception as e:
-        print(f"Playwright installation warning: {e}")
+    # 시스템 브라우저가 없을 경우를 대비한 최소한의 백업 다운로드 처리입니다.
+    if not get_chromium_executable():
+        try:
+            print("No system Chromium found. Installing Playwright Chromium binaries...")
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            print("Playwright Chromium binaries are ready!")
+        except Exception as e:
+            print(f"Playwright installation warning: {e}")
 
-# 브라우저 환경 확보 실행
 ensure_playwright_browsers()
 
 # ============================================================
