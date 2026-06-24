@@ -12,7 +12,6 @@ from openai import OpenAI
 # [시스템 Chromium 브라우저 경로 탐색 기능]
 # ============================================================
 # packages.txt를 통해 리눅스 서버에 기본 설치된 Chromium 브라우저의 실제 실행 경로를 탐색합니다.
-# 이 경로를 사용하면 무거운 런타임 다운로드 없이 서버의 브라우저를 즉시 구동할 수 있습니다.
 def get_chromium_executable():
     paths = [
         "/usr/bin/chromium",
@@ -30,7 +29,6 @@ def get_chromium_executable():
 # ============================================================
 @st.cache_resource
 def ensure_playwright_browsers():
-    # 시스템 브라우저가 없을 경우를 대비한 최소한의 백업 다운로드 처리입니다.
     if not get_chromium_executable():
         try:
             print("No system Chromium found. Installing Playwright Chromium binaries...")
@@ -44,7 +42,6 @@ ensure_playwright_browsers()
 # ============================================================
 # [OG 메타 태그 주입 및 페이지 헤더 설정]
 # ============================================================
-# GitHub 저장소에 올린 이미지를 사용하기 위한 Raw URL 주소입니다.
 OG_IMAGE_URL = "https://raw.githubusercontent.com/hunecenter94/webalternativetext/main/og-image.png"
 
 st.set_page_config(
@@ -53,7 +50,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# 헤더에 메타 태그를 주입하되, 브라우저가 화면에 글자로 그리지 않도록 style="display:none;" 처리
 st.markdown(
     f"""
     <div style="display:none;">
@@ -62,7 +58,7 @@ st.markdown(
             <meta property="og:type" content="website" />
             <meta property="og:url" content="https://k2webtech.streamlit.app/" />
             <meta property="og:title" content="웹접근성 alt 대체 텍스트 관리" />
-            <meta property="og:description" 웹접근성 alt 대체 텍스트 관리" />
+            <meta property="og:description" content="웹접근성 alt 대체 텍스트 관리" />
             <meta property="og:image" content="{OG_IMAGE_URL}" />
             <meta property="og:image:width" content="1200" />
             <meta property="og:image:height" content="630" />
@@ -90,7 +86,7 @@ if "log_messages" not in st.session_state:
 if "article_images" not in st.session_state:
     st.session_state.article_images = {}
 
-# 📊 [추가] GPT API 토큰 사용량 정보 세션 초기화
+# GPT API 토큰 사용량 및 가상 예산(Budget) 세션 초기화
 if "prompt_tokens" not in st.session_state:
     st.session_state.prompt_tokens = 0
 if "completion_tokens" not in st.session_state:
@@ -111,25 +107,42 @@ LOGIN_ID = st.sidebar.text_input("로그인 ID")
 LOGIN_PASSWORD = st.sidebar.text_input("로그인 패스워드", type="password")
 
 # ============================================================
-# 📊 [추가] GPT API 사용량 모니터링 사이드바 UI 랜더링
+# 📊 [개선] GPT API 사용량 모니터링 & 예산 한도 통제 UI
 # ============================================================
 st.sidebar.markdown("---")
-st.sidebar.subheader("📊 GPT API 사용량 모니터링")
+st.sidebar.subheader("📊 GPT API 예산 통제 시스템")
 
 # gpt-4o-mini 단가 기준 (입력: $0.15/1M tokens, 출력: $0.60/1M tokens)
-cost_input = (st.session_state.prompt_tokens / 1,000,000) * 0.15 if st.session_state.prompt_tokens > 0 else 0.0
-cost_output = (st.session_state.completion_tokens / 1,000,000) * 0.60 if st.session_state.completion_tokens > 0 else 0.0
+cost_input = (st.session_state.prompt_tokens / 1000000) * 0.15 if st.session_state.prompt_tokens > 0 else 0.0
+cost_output = (st.session_state.completion_tokens / 1000000) * 0.60 if st.session_state.completion_tokens > 0 else 0.0
 total_cost_usd = cost_input + cost_output
+
+# 사용자가 직접 설정하는 예산 상한선 (안전장치)
+max_budget_usd = st.sidebar.number_input(
+    "⚠️ 자가 제한 한도 설정 ($ USD)", 
+    min_value=0.01, 
+    value=0.50, 
+    step=0.05,
+    help="설정한 예산에 도달하면 API 호출이 자동으로 잠깁니다."
+)
+
+budget_rate = min((total_cost_usd / max_budget_usd) * 100, 100.0) if max_budget_usd > 0 else 0.0
+
+# 게이지 및 경고 UI 표시
+if total_cost_usd >= max_budget_usd:
+    st.sidebar.error(f"🚨 예산 초과! 설정하신 한도(${max_budget_usd:.2f})에 도달하여 AI 호출이 비활성화되었습니다.")
+else:
+    st.sidebar.progress(budget_rate / 100.0, text=f"사용량 게이지: {budget_rate:.2f}% 소모")
 
 col_u1, col_u2 = st.sidebar.columns(2)
 col_u1.metric("총 호출 횟수", f"{st.session_state.api_calls} 회")
 col_u2.metric("누적 예상 비용", f"${total_cost_usd:.5f}")
 
-with st.sidebar.expander("🔍 상세 토큰 사용량"):
-    st.write(f"- **입력 토큰 (Input):** {st.session_state.prompt_tokens:,} tokens")
-    st.write(f"- **출력 토큰 (Output):** {st.session_state.completion_tokens:,} tokens")
-    st.write(f"- **총합 토큰:** {st.session_state.prompt_tokens + st.session_state.completion_tokens:,} tokens")
-    st.caption("※ 비용 계산 모델: `gpt-4o-mini` (2026 단가 반영)")
+with st.sidebar.expander("🔍 상세 토큰 및 청구 기준"):
+    st.write(f"- **입력 토큰:** {st.session_state.prompt_tokens:,} tokens")
+    st.write(f"- **출력 토큰:** {st.session_state.completion_tokens:,} tokens")
+    st.write(f"- **허용 잔여 예산:** ${max_budget_usd - total_cost_usd:.5f}")
+    st.caption("※ API Key의 실제 남은 크레딧은 [OpenAI 대시보드]에서만 조회 가능합니다.")
     if st.button("🔄 사용량 기록 리셋", use_container_width=True):
         st.session_state.prompt_tokens = 0
         st.session_state.completion_tokens = 0
@@ -148,6 +161,12 @@ SYSTEM_PROMPT = (
 )
 
 def generate_alt_text(client, image_url: str) -> str | None:
+    # 🌟 [안전 제어] 설정한 최대 한도를 돌파했는지 체크
+    if total_cost_usd >= max_budget_usd:
+        add_log(f"  ❌ [호출 차단] 누적 비용이 자가 제한 예산 한도(${max_budget_usd:.2f})를 초과하여 AI 호출을 거부합니다.")
+        st.error("설정한 수동 예산 한도를 초과했습니다. 사이드바에서 한도를 늘려주세요.")
+        return None
+
     try:
         if "localhost" in image_url or "127.0.0.1" in image_url or image_url.startswith("/"):
             add_log(f"  ⚠️ [경고] 이미지 주소가 로컬/내부망 경로 같습니다. 외부 접근이 불가능하면 AI 생성이 실패합니다. ({image_url})")
@@ -167,7 +186,7 @@ def generate_alt_text(client, image_url: str) -> str | None:
             max_tokens=500,
         )
         
-        # 📊 [추가] 성공적인 API 응답 수집 시 토큰 수 추적 저장
+        # 성공적인 API 응답 수집 시 토큰 수 추적 저장
         if response.usage:
             st.session_state.prompt_tokens += response.usage.prompt_tokens
             st.session_state.completion_tokens += response.usage.completion_tokens
