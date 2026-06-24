@@ -15,22 +15,24 @@ st.set_page_config(page_title="웹접근성 alt 대체 텍스트 관리", page_i
 # 사용자 정의 메타 태그 주입 (카카오톡, 슬랙, 페이스북 용)
 st.markdown(
     f"""
-    <head>
-        <!-- Open Graph 기본 메타 태그 -->
-        <meta property="og:type" content="website" />
-        <meta property="og:url" content="https://k2webtech.streamlit.app/" />
-        <meta property="og:title" content="웹접근성 alt 대체 텍스트 관리" />
-        <meta property="og:description" content="웹접근성 alt 대체 텍스트 관리" />
-        <meta property="og:image" content="{OG_IMAGE_URL}" />
-        <meta property="og:image:width" content="1200" />
-        <meta property="og:image:height" content="630" />
-        
-        <!-- 트위터 카드 메타 태그 -->
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="웹접근성 alt 대체 텍스트 관리" />
-        <meta name="twitter:description" content="웹접근성 alt 대체 텍스트 관리" />
-        <meta name="twitter:image" content="{OG_IMAGE_URL}" />
-    </head>
+    <div style="display:none;">
+        <head>
+            <!-- Open Graph 기본 메타 태그 -->
+            <meta property="og:type" content="website" />
+            <meta property="og:url" content="https://k2webtech.streamlit.app/" />
+            <meta property="og:title" content="웹접근성 alt 대체 텍스트 관리" />
+            <meta property="og:description" content="웹접근성 alt 대체 텍스트 관리" />
+            <meta property="og:image" content="{OG_IMAGE_URL}" />
+            <meta property="og:image:width" content="1200" />
+            <meta property="og:image:height" content="630" />
+            
+            <!-- 트위터 카드 메타 태그 -->
+            <meta name="twitter:card" content="summary_large_image" />
+            <meta name="twitter:title" content="웹접근성 alt 대체 텍스트 관리" />
+            <meta name="twitter:description" content="웹접근성 alt 대체 텍스트 관리" />
+            <meta name="twitter:image" content="{OG_IMAGE_URL}" />
+        </head>
+    </div>
     """,
     unsafe_allow_html=True
 )
