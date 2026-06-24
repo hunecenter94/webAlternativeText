@@ -6,8 +6,34 @@ import streamlit as st
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from openai import OpenAI
 
+# 카카오톡, 슬랙 등에 표시될 대표 공유 이미지 URL을 지정하세요.
+OG_IMAGE_URL = "./images/ogImage.png"
+
 # 스트림릿 웹 페이지 설정
 st.set_page_config(page_title="웹접근성 alt 대체 텍스트 관리", page_icon="🛠️", layout="wide")
+
+# 사용자 정의 메타 태그 주입 (카카오톡, 슬랙, 페이스북 용)
+st.markdown(
+    f"""
+    <head>
+        <!-- Open Graph 기본 메타 태그 -->
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://k2webtech.streamlit.app/" />
+        <meta property="og:title" content="웹접근성 alt 대체 텍스트 관리" />
+        <meta property="og:description" content="웹접근성 alt 대체 텍스트 관리" />
+        <meta property="og:image" content="{OG_IMAGE_URL}" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        
+        <!-- 트위터 카드 메타 태그 -->
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="웹접근성 alt 대체 텍스트 관리" />
+        <meta name="twitter:description" content="웹접근성 alt 대체 텍스트 관리" />
+        <meta name="twitter:image" content="{OG_IMAGE_URL}" />
+    </head>
+    """,
+    unsafe_allow_html=True
+)
 st.title("🛠️ 웹접근성 alt 대체 텍스트 관리")
 
 # 세션 상태(Session State) 초기화
