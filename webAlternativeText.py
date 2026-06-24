@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from openai import OpenAI
 
 # 카카오톡, 슬랙 등에 표시될 대표 공유 이미지 URL을 지정하세요.
-OG_IMAGE_URL = "./images/ogImage.png"
+OG_IMAGE_URL = "/images/ogImage.png"
 
 # 스트림릿 웹 페이지 설정
 st.set_page_config(page_title="웹접근성 alt 대체 텍스트 관리", page_icon="🛠️", layout="wide")
