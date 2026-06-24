@@ -6,7 +6,27 @@ import streamlit as st
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from openai import OpenAI
 
-# 카카오톡, 슬랙 등에 표시될 대표 공유 이미지 URL을 지정하세요.
+# ============================================================
+# [Playwright 브라우저 자동 설치 셋업] ★최상단 위치★
+# ============================================================
+# Streamlit Cloud 환경에서 Playwright 가상 브라우저 바이너리가 없을 경우를 대비하여
+# 앱 시작 시 최초 1회 자동으로 chromium 바이너리를 다운로드 및 세팅합니다.
+@st.cache_resource
+def ensure_playwright_browsers():
+    try:
+        print("Checking/Installing Playwright Chromium binaries...")
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        print("Playwright Chromium binaries are ready!")
+    except Exception as e:
+        print(f"Playwright installation warning: {e}")
+
+# 브라우저 환경 확보 실행
+ensure_playwright_browsers()
+
+# ============================================================
+# [OG 메타 태그 주입 및 페이지 헤더 설정]
+# ============================================================
+# GitHub 저장소에 올린 이미지를 사용하기 위한 Raw URL 주소입니다.
 OG_IMAGE_URL = "https://raw.githubusercontent.com/hunecenter94/webalternativetext/main/images/ogImage.png"
 
 # 스트림릿 웹 페이지 설정
