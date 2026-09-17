@@ -307,7 +307,7 @@ def fetch_links_and_images():
 
                     # 크로스에디터: 시각 영역(iframe) 대신 textarea#cn에서 본문 원본 HTML을 직접 읽는다
                     try:
-                        page.wait_for_selector("textarea#cn", timeout=5000)
+                        page.wait_for_selector("textarea#cn", state="attached", timeout=5000)
                     except PWTimeout:
                         add_log(f"  ❌ {url} 글에서 본문 textarea(cn)를 찾지 못했습니다.")
                         st.session_state.article_images[url] = []
@@ -360,7 +360,7 @@ def save_alt_to_web(url: str, img_data_list: list, article_idx: int):
                 page.wait_for_load_state("networkidle")
 
                 try:
-                    page.wait_for_selector("textarea#cn", timeout=5000)
+                    page.wait_for_selector("textarea#cn", state="attached", timeout=5000)
                 except PWTimeout:
                     add_log(f"  ❌ {url} 글에서 본문 textarea(cn)를 찾지 못해 저장을 중단합니다.")
                     return
