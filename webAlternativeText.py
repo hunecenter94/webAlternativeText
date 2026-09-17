@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import html as html_module
 import subprocess
 import sys
 from urllib.parse import urljoin
@@ -160,6 +161,11 @@ SYSTEM_PROMPT = (
     "없이 최종 대체 텍스트만 출력합니다."
 )
 
+# 본문 HTML에서 <img> 태그를 찾아내는 정규식 (태그 전체를 먼저 잡고, 속성은 태그 안에서 각각 검색)
+IMG_TAG_PATTERN = re.compile(r'<img\b[^>]*>', re.IGNORECASE)
+ATTR_SRC_PATTERN = re.compile(r'\bsrc\s*=\s*["\']([^"\']*)["\']', re.IGNORECASE)
+ATTR_ALT_PATTERN = re.compile(r'\balt\s*=\s*["\']([^"\']*)["\']', re.IGNORECASE)
+
 def generate_alt_text(client, image_url: str) -> str | None:
     # 🌟 [안전 제어] 설정한 최대 한도를 돌파했는지 체크
     if total_cost_usd >= max_budget_usd:
@@ -218,6 +224,31 @@ def login(page):
     page.click("button[type=submit]")
     page.wait_for_load_state("networkidle")
 
+def parse_images_from_html(raw_html: str, base_url: str):
+    """textarea#cn 에 담긴 이스케이프된 본문 HTML에서 img 목록을 추출한다."""
+    decoded = html_module.unescape(raw_html or "")
+    imgs = []
+    for i, tag_match in enumerate(IMG_TAG_PATTERN.finditer(decoded)):
+        tag = tag_match.group(0)
+
+        src_match = ATTR_SRC_PATTERN.search(tag)
+        src = src_match.group(1) if src_match else None
+        if not src:
+            add_log(f"  ⚠️ [{i}]번 이미지에 src가 없어 건너뜁니다.")
+            continue
+
+        if not src.startswith("http"):
+            src = urljoin(base_url, src)
+
+        alt_match = ATTR_ALT_PATTERN.search(tag)
+        alt = alt_match.group(1) if alt_match else None
+        if not alt or alt.strip() == "":
+            alt = "alt값 미존재"
+
+        imgs.append({"idx": i, "src": src, "alt": alt})
+
+    return imgs
+
 def fetch_links_and_images():
     if not LOGIN_URL or not LIST_URL or not LOGIN_ID or not LOGIN_PASSWORD:
         st.error("사이드바의 로그인 및 목록 정보를 모두 입력해주세요.")
@@ -273,48 +304,23 @@ def fetch_links_and_images():
                         
                     edit_btn.click()
                     page.wait_for_load_state("networkidle")
-                    page.wait_for_timeout(1200)
-                    
-                    editor_frame = None
-                    for frame in page.frames:
-                        if "NamoSE_Ifr__namoEditor" in (frame.name or "") or "crosseditor" in (frame.url or "").lower():
-                            editor_frame = frame
-                            break
-                            
-                    if editor_frame:
-                        imgs = editor_frame.eval_on_selector_all(
-                            "img",
-                            "els => els.map((el, idx) => ({idx, src: el.getAttribute('src'), alt: el.getAttribute('alt')}))",
-                        )
 
-                        # src가 없는 이미지(에디터 UI 아이콘 등)는 건너뛰고,
-                        # 유효한 이미지만 필터링하여 저장한다 (None.startswith 에러 방지)
-                        filtered_imgs = []
-                        for img in imgs:
-                            src = img.get("src")
-
-                            if not src:
-                                add_log(f"  ⚠️ [{img['idx']}]번 이미지에 src 속성이 없어 건너뜁니다.")
-                                continue
-
-                            if not src.startswith("http"):
-                                src = urljoin(url, src)
-                            img["src"] = src
-
-                            alt = img.get("alt")
-                            if not alt or alt.strip() == "":
-                                alt = "alt값 미존재"
-                            img["alt"] = alt
-
-                            widget_key = f"widget_{idx}_{img['idx']}"
-                            st.session_state[widget_key] = img["alt"]
-
-                            filtered_imgs.append(img)
-
-                        st.session_state.article_images[url] = filtered_imgs
-                    else:
-                        add_log(f"  ❌ {url} 글에서 나모 에디터 프레임을 발견하지 못했습니다.")
+                    # 크로스에디터: 시각 영역(iframe) 대신 textarea#cn에서 본문 원본 HTML을 직접 읽는다
+                    try:
+                        page.wait_for_selector("textarea#cn", timeout=5000)
+                    except PWTimeout:
+                        add_log(f"  ❌ {url} 글에서 본문 textarea(cn)를 찾지 못했습니다.")
                         st.session_state.article_images[url] = []
+                        continue
+
+                    raw_content = page.locator("textarea#cn").input_value()
+                    imgs = parse_images_from_html(raw_content, url)
+
+                    for img in imgs:
+                        widget_key = f"widget_{idx}_{img['idx']}"
+                        st.session_state[widget_key] = img["alt"]
+
+                    st.session_state.article_images[url] = imgs
                         
                 st.success(f"🎉 총 {len(st.session_state.article_list)}개의 게시글 및 내부 이미지 연동이 완료되었습니다!")
             except Exception as e:
@@ -352,43 +358,67 @@ def save_alt_to_web(url: str, img_data_list: list, article_idx: int):
                 
                 page.locator("input[value='수정']").first.click()
                 page.wait_for_load_state("networkidle")
-                page.wait_for_timeout(1500)
-                
-                editor_frame = None
-                for frame in page.frames:
-                    if "NamoSE_Ifr__namoEditor" in (frame.name or "") or "crosseditor" in (frame.url or "").lower():
-                        editor_frame = frame
-                        break
-                
-                if editor_frame:
-                    for img in img_data_list:
-                        widget_key = f"widget_{article_idx}_{img['idx']}"
-                        user_edited_alt = st.session_state.get(widget_key, img["alt"])
-                        final_alt = "" if user_edited_alt == "alt값 미존재" else user_edited_alt
-                        
-                        editor_frame.evaluate(
-                            """({idx, altText}) => {
-                                const imgEls = document.querySelectorAll('img');
-                                if (imgEls[idx]) imgEls[idx].setAttribute('alt', altText);
-                            }""",
-                            {"idx": img["idx"], "altText": final_alt},
-                        )
-                        add_log(f"  -> 이미지 [{img['idx']}]번에 alt='{final_alt}' 주입")
-                    
-                    save_candidates = ["input[value='수정']"]
-                    save_btn = None
-                    for sel in save_candidates:
-                        if page.locator(sel).first.is_visible(timeout=1000):
-                            save_btn = page.locator(sel).first
-                            break
-                    
-                    if save_btn:
-                        save_btn.click()
-                        page.wait_for_load_state("networkidle")
-                        add_log("  ✅ [성공] 나모 에디터 반영 및 수정 완료!")
-                        st.success("게시글 수정 저장에 성공했습니다!")
+
+                try:
+                    page.wait_for_selector("textarea#cn", timeout=5000)
+                except PWTimeout:
+                    add_log(f"  ❌ {url} 글에서 본문 textarea(cn)를 찾지 못해 저장을 중단합니다.")
+                    return
+
+                raw_content = page.locator("textarea#cn").input_value()
+                decoded = html_module.unescape(raw_content or "")
+
+                # textarea 안의 각 <img> 태그를 순서대로 순회하며 alt만 교체/삽입한다
+                def replace_alt(match):
+                    idx = replace_alt.counter
+                    replace_alt.counter += 1
+
+                    tag = match.group(0)
+                    target = next((i for i in img_data_list if i["idx"] == idx), None)
+                    if target is None:
+                        return tag
+
+                    widget_key = f"widget_{article_idx}_{idx}"
+                    user_edited_alt = st.session_state.get(widget_key, target["alt"])
+                    final_alt = "" if user_edited_alt == "alt값 미존재" else user_edited_alt
+                    # HTML에 다시 넣을 값이므로 이스케이프 처리
+                    escaped_alt = html_module.escape(final_alt, quote=True)
+
+                    if ATTR_ALT_PATTERN.search(tag):
+                        new_tag = ATTR_ALT_PATTERN.sub(f'alt="{escaped_alt}"', tag, count=1)
                     else:
-                        add_log("  ⚠️ [경고] 수정 버튼을 찾지 못했습니다.")
+                        # alt 속성이 아예 없던 태그라면 새로 추가
+                        new_tag = tag[:-1].rstrip() + f' alt="{escaped_alt}">'
+
+                    add_log(f"  -> 이미지 [{idx}]번에 alt='{final_alt}' 주입")
+                    return new_tag
+
+                replace_alt.counter = 0
+                new_decoded = IMG_TAG_PATTERN.sub(replace_alt, decoded)
+
+                # 다시 이스케이프해서 textarea 값으로 채워 넣는다
+                new_raw = html_module.escape(new_decoded, quote=False)
+
+                # textarea#cn 값을 직접 갱신 (에디터가 이 값을 읽어 전송하는 구조라는 전제)
+                page.locator("textarea#cn").evaluate(
+                    "(el, value) => { el.value = value; }",
+                    new_raw,
+                )
+
+                save_candidates = ["input[value='수정']"]
+                save_btn = None
+                for sel in save_candidates:
+                    if page.locator(sel).first.is_visible(timeout=1000):
+                        save_btn = page.locator(sel).first
+                        break
+
+                if save_btn:
+                    save_btn.click()
+                    page.wait_for_load_state("networkidle")
+                    add_log("  ✅ [성공] 크로스에디터 반영 및 수정 완료!")
+                    st.success("게시글 수정 저장에 성공했습니다!")
+                else:
+                    add_log("  ⚠️ [경고] 수정 버튼을 찾지 못했습니다.")
             except Exception as e:
                 add_log(f"  ❌ [오류] 반영 실패: {e}")
             finally:
