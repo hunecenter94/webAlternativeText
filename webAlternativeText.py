@@ -277,7 +277,7 @@ def fetch_links_and_images():
                     
                     editor_frame = None
                     for frame in page.frames:
-                        if "NamoSE_editorframe_editor" in frame.name or "NamoSE_editorframe_editor" in frame.url:
+                        if "NamoSE_Ifr__namoEditor" in (frame.name or "") or "crosseditor" in (frame.url or "").lower():
                             editor_frame = frame
                             break
                             
@@ -340,7 +340,7 @@ def save_alt_to_web(url: str, img_data_list: list, article_idx: int):
                 
                 editor_frame = None
                 for frame in page.frames:
-                    if "NamoSE_editorframe_editor" in frame.name or "NamoSE_editorframe_editor" in frame.url:
+                    if "NamoSE_Ifr__namoEditor" in (frame.name or "") or "crosseditor" in (frame.url or "").lower():
                         editor_frame = frame
                         break
                 
