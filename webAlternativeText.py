@@ -286,16 +286,32 @@ def fetch_links_and_images():
                             "img",
                             "els => els.map((el, idx) => ({idx, src: el.getAttribute('src'), alt: el.getAttribute('alt')}))",
                         )
+
+                        # src가 없는 이미지(에디터 UI 아이콘 등)는 건너뛰고,
+                        # 유효한 이미지만 필터링하여 저장한다 (None.startswith 에러 방지)
+                        filtered_imgs = []
                         for img in imgs:
-                            if not img["src"].startswith("http"):
-                                img["src"] = urljoin(url, img["src"])
-                            if not img["alt"] or img["alt"].strip() == "":
-                                img["alt"] = "alt값 미존재"
-                                
+                            src = img.get("src")
+
+                            if not src:
+                                add_log(f"  ⚠️ [{img['idx']}]번 이미지에 src 속성이 없어 건너뜁니다.")
+                                continue
+
+                            if not src.startswith("http"):
+                                src = urljoin(url, src)
+                            img["src"] = src
+
+                            alt = img.get("alt")
+                            if not alt or alt.strip() == "":
+                                alt = "alt값 미존재"
+                            img["alt"] = alt
+
                             widget_key = f"widget_{idx}_{img['idx']}"
                             st.session_state[widget_key] = img["alt"]
-                            
-                        st.session_state.article_images[url] = imgs
+
+                            filtered_imgs.append(img)
+
+                        st.session_state.article_images[url] = filtered_imgs
                     else:
                         add_log(f"  ❌ {url} 글에서 나모 에디터 프레임을 발견하지 못했습니다.")
                         st.session_state.article_images[url] = []
